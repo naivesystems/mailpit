@@ -51,6 +51,8 @@ type Client struct {
 
 	// Buffered channel of outbound messages.
 	send chan []byte
+
+	user string
 }
 
 // writePump pumps messages from the hub to the websocket connection.
@@ -123,6 +125,7 @@ func ServeWs(hub *Hub, w http.ResponseWriter, r *http.Request) {
 
 	client := &Client{hub: hub, conn: conn, send: make(chan []byte, 256)}
 	client.hub.register <- client
+	client.user = r.Header.Get("X-Remote-User")
 
 	// Allow collection of memory referenced by the caller by doing all work in
 	// new goroutines.

@@ -8,7 +8,13 @@ import (
 	"encoding/json"
 
 	"github.com/axllent/mailpit/utils/logger"
+	"golang.org/x/exp/slices"
 )
+
+type Message struct {
+	Data  []byte
+	Users []string
+}
 
 // Hub maintains the set of active clients and broadcasts messages to the
 // clients.
@@ -17,7 +23,7 @@ type Hub struct {
 	Clients map[*Client]bool
 
 	// Inbound messages from the clients.
-	Broadcast chan []byte
+	Broadcast chan Message
 
 	// Register requests from the clients.
 	register chan *Client
@@ -35,7 +41,7 @@ type WebsocketNotification struct {
 // NewHub returns a new hub configuration
 func NewHub() *Hub {
 	return &Hub{
-		Broadcast:  make(chan []byte),
+		Broadcast:  make(chan Message),
 		register:   make(chan *Client),
 		unregister: make(chan *Client),
 		Clients:    make(map[*Client]bool),
@@ -56,8 +62,11 @@ func (h *Hub) Run() {
 		case message := <-h.Broadcast:
 			// logger.Log().Debugf("[broadcast] %s", message)
 			for client := range h.Clients {
+				if message.Users != nil && !slices.Contains(message.Users, client.user) {
+					continue
+				}
 				select {
-				case client.send <- message:
+				case client.send <- message.Data:
 				default:
 					close(client.send)
 					delete(h.Clients, client)
@@ -68,7 +77,7 @@ func (h *Hub) Run() {
 }
 
 // Broadcast will spawn a broadcast message to all connected clients
-func Broadcast(t string, msg interface{}) {
+func Broadcast(t string, msg interface{}, users []string) {
 	if MessageHub == nil {
 		return
 	}
@@ -82,5 +91,6 @@ func Broadcast(t string, msg interface{}) {
 		logger.Log().Errorf("[http] broadcast received invalid data: %s", err)
 	}
 
-	go func() { MessageHub.Broadcast <- b }()
+	m := Message{b, users}
+	go func() { MessageHub.Broadcast <- m }()
 }

@@ -313,11 +313,22 @@ func Store(body []byte) (string, error) {
 	c.Size = size
 	c.Tags = tagData
 
-	websockets.Broadcast("new", c)
+	websockets.Broadcast("new", c, extractUsers(c.To))
 
 	dbLastAction = time.Now()
 
 	return id, nil
+}
+
+func extractUsers(recipients []*mail.Address) []string {
+	var users []string
+	for _, recipient := range recipients {
+		user, _, found := strings.Cut(recipient.Address, "@")
+		if found {
+			users = append(users, user)
+		}
+	}
+	return users
 }
 
 // List returns a subset of messages from the mailbox,
@@ -798,7 +809,7 @@ func DeleteAllMessages() error {
 	dbLastAction = time.Now()
 	dbDataDeleted = false
 
-	websockets.Broadcast("prune", nil)
+	websockets.Broadcast("prune", nil, nil)
 
 	return err
 }
