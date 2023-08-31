@@ -5,8 +5,6 @@ import Prism from "prismjs"
 import Tags from "bootstrap5-tags"
 import Attachments from './Attachments.vue'
 import Headers from './Headers.vue'
-import HTMLCheck from './MessageHTMLCheck.vue'
-import LinkCheck from './MessageLinkCheck.vue'
 
 export default {
 	props: {
@@ -18,8 +16,6 @@ export default {
 	components: {
 		Attachments,
 		Headers,
-		HTMLCheck,
-		LinkCheck,
 	},
 
 	mixins: [commonMixins],
@@ -362,51 +358,6 @@ export default {
 					role="tab" aria-controls="nav-raw" aria-selected="false">
 					Raw
 				</button>
-				<div class="dropdown d-lg-none">
-					<button class="nav-link dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
-						Checks
-					</button>
-					<ul class="dropdown-menu">
-						<li>
-							<button class="dropdown-item" id="nav-html-check-tab" data-bs-toggle="tab"
-								data-bs-target="#nav-html-check" type="button" role="tab" aria-controls="nav-html"
-								aria-selected="false" v-if="!uiConfig.DisableHTMLCheck && message.HTML != ''">
-								HTML Check
-								<span class="badge rounded-pill p-1" :class="htmlScoreColor" v-if="htmlScore !== false">
-									<small>{{ Math.floor(htmlScore) }}%</small>
-								</span>
-							</button>
-						</li>
-						<li>
-							<button class="dropdown-item" id="nav-link-check-tab" data-bs-toggle="tab"
-								data-bs-target="#nav-link-check" type="button" role="tab" aria-controls="nav-link-check"
-								aria-selected="false">
-								Link Check
-								<i class="bi bi-check-all text-success" v-if="linkCheckErrors === 0"></i>
-								<span class="badge rounded-pill bg-danger" v-else-if="linkCheckErrors > 0">
-									<small>{{ formatNumber(linkCheckErrors) }}</small>
-								</span>
-							</button>
-						</li>
-					</ul>
-				</div>
-				<button class="d-none d-lg-inline-block nav-link position-relative" id="nav-html-check-tab"
-					data-bs-toggle="tab" data-bs-target="#nav-html-check" type="button" role="tab" aria-controls="nav-html"
-					aria-selected="false" v-if="!uiConfig.DisableHTMLCheck && message.HTML != ''">
-					HTML Check
-					<span class="badge rounded-pill p-1" :class="htmlScoreColor" v-if="htmlScore !== false">
-						<small>{{ Math.floor(htmlScore) }}%</small>
-					</span>
-				</button>
-				<button class="d-none d-lg-inline-block nav-link" id="nav-link-check-tab" data-bs-toggle="tab"
-					data-bs-target="#nav-link-check" type="button" role="tab" aria-controls="nav-link-check"
-					aria-selected="false">
-					Link Check
-					<i class="bi bi-check-all text-success" v-if="linkCheckErrors === 0"></i>
-					<span class="badge rounded-pill bg-danger" v-else-if="linkCheckErrors > 0">
-						<small>{{ formatNumber(linkCheckErrors) }}</small>
-					</span>
-				</button>
 
 				<div class="d-none d-lg-block ms-auto me-3" v-if="showMobileButtons">
 					<template v-for="vals, key in responsiveSizes">
@@ -446,15 +397,6 @@ export default {
 			<div class="tab-pane fade" id="nav-raw" role="tabpanel" aria-labelledby="nav-raw-tab" tabindex="0">
 				<iframe v-if="srcURI" :src="srcURI" v-on:load="initRawIframe" frameborder="0"
 					style="width: 100%; height: 300px"></iframe>
-			</div>
-			<div class="tab-pane fade" id="nav-html-check" role="tabpanel" aria-labelledby="nav-html-check-tab"
-				tabindex="0">
-				<HTMLCheck v-if="!uiConfig.DisableHTMLCheck && message.HTML != ''" :message="message"
-					@setHtmlScore="(n) => htmlScore = n" @set-badge-style="(v) => htmlScoreColor = v" />
-			</div>
-			<div class="tab-pane fade" id="nav-link-check" role="tabpanel" aria-labelledby="nav-html-check-tab"
-				tabindex="0">
-				<LinkCheck :message="message" @setLinkErrors="(n) => linkCheckErrors = n" />
 			</div>
 		</div>
 	</div>

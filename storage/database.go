@@ -27,6 +27,7 @@ import (
 	"github.com/leporo/sqlf"
 	"github.com/mattn/go-shellwords"
 	uuid "github.com/satori/go.uuid"
+	"golang.org/x/exp/slices"
 
 	// sqlite (native) - https://gitlab.com/cznic/sqlite
 	_ "modernc.org/sqlite"
@@ -333,7 +334,7 @@ func extractUsers(recipients []*mail.Address) []string {
 
 // List returns a subset of messages from the mailbox,
 // sorted latest to oldest
-func List(start, limit int) ([]MessageSummary, error) {
+func List(user string, start, limit int) ([]MessageSummary, error) {
 	results := []MessageSummary{}
 
 	q := sqlf.From("mailbox").
@@ -341,6 +342,9 @@ func List(start, limit int) ([]MessageSummary, error) {
 		OrderBy("Created DESC").
 		Limit(limit).
 		Offset(start)
+	if user != "" {
+		q.Where("Metadata -> '$.To' LIKE ?", `%"Address":"`+escPercentChar(user)+`@%`)
+	}
 
 	if err := q.QueryAndClose(nil, db, func(row *sql.Rows) {
 		var created int64
@@ -394,7 +398,7 @@ func List(start, limit int) ([]MessageSummary, error) {
 // The search is broken up by segments (exact phrases can be quoted), and interprets specific terms such as:
 // is:read, is:unread, has:attachment, to:<term>, from:<term> & subject:<term>
 // Negative searches also also included by prefixing the search term with a `-` or `!`
-func Search(search string, start, limit int) ([]MessageSummary, int, error) {
+func Search(user, search string, start, limit int) ([]MessageSummary, int, error) {
 	results := []MessageSummary{}
 	allResults := []MessageSummary{}
 	tsStart := time.Now()
@@ -417,7 +421,7 @@ func Search(search string, start, limit int) ([]MessageSummary, int, error) {
 	}
 
 	// generate the SQL based on arguments
-	q := searchParser(args)
+	q := searchParser(user, args)
 
 	if err := q.QueryAndClose(nil, db, func(row *sql.Rows) {
 		var created int64
@@ -482,8 +486,8 @@ func Search(search string, start, limit int) ([]MessageSummary, int, error) {
 
 // GetMessage returns a Message generated from the mailbox_data collection.
 // If the message lacks a date header, then the received datetime is used.
-func GetMessage(id string) (*Message, error) {
-	raw, err := GetMessageRaw(id)
+func GetMessage(user, id string) (*Message, error) {
+	raw, err := GetMessageRaw(user, id)
 	if err != nil {
 		return nil, err
 	}
@@ -573,7 +577,7 @@ func GetMessage(id string) (*Message, error) {
 	}
 
 	// mark message as read
-	if err := MarkRead(id); err != nil {
+	if err := MarkRead(user, id); err != nil {
 		return &obj, err
 	}
 
@@ -583,7 +587,7 @@ func GetMessage(id string) (*Message, error) {
 }
 
 // GetMessageRaw returns an []byte of the full message
-func GetMessageRaw(id string) ([]byte, error) {
+func GetMessageRaw(user, id string) ([]byte, error) {
 	var i string
 	var msg string
 	q := sqlf.From("mailbox_data").
@@ -604,6 +608,20 @@ func GetMessageRaw(id string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("error decompressing message: %s", err.Error())
 	}
+	if user != "" {
+		reader := bytes.NewReader(raw)
+		m, err := mail.ReadMessage(reader)
+		if err != nil {
+			return nil, fmt.Errorf("error reading message: %s", err.Error())
+		}
+		to, err := m.Header.AddressList("To")
+		if err != nil {
+			return nil, fmt.Errorf("error parsing address list: %s", err.Error())
+		}
+		if !slices.Contains(extractUsers(to), user) {
+			return nil, errors.New("message not found")
+		}
+	}
 
 	dbLastAction = time.Now()
 
@@ -611,8 +629,8 @@ func GetMessageRaw(id string) ([]byte, error) {
 }
 
 // GetAttachmentPart returns an *enmime.Part (attachment or inline) from a message
-func GetAttachmentPart(id, partID string) (*enmime.Part, error) {
-	raw, err := GetMessageRaw(id)
+func GetAttachmentPart(user, id, partID string) (*enmime.Part, error) {
+	raw, err := GetMessageRaw(user, id)
 	if err != nil {
 		return nil, err
 	}
@@ -648,15 +666,18 @@ func GetAttachmentPart(id, partID string) (*enmime.Part, error) {
 }
 
 // MarkRead will mark a message as read
-func MarkRead(id string) error {
-	if !IsUnread(id) {
+func MarkRead(user, id string) error {
+	if !isUnread(id) {
 		return nil
 	}
 
-	_, err := sqlf.Update("mailbox").
+	q := sqlf.Update("mailbox").
 		Set("Read", 1).
-		Where("ID = ?", id).
-		ExecAndClose(context.Background(), db)
+		Where("ID = ?", id)
+	if user != "" {
+		q.Where("Metadata -> '$.To' LIKE ?", `%"Address":"`+escPercentChar(user)+`@%`)
+	}
+	_, err := q.ExecAndClose(context.Background(), db)
 
 	if err == nil {
 		logger.Log().Debugf("[db] marked message %s as read", id)
@@ -666,16 +687,19 @@ func MarkRead(id string) error {
 }
 
 // MarkAllRead will mark all messages as read
-func MarkAllRead() error {
+func MarkAllRead(user string) error {
 	var (
 		start = time.Now()
-		total = CountUnread()
+		total = CountUnread(user)
 	)
 
-	_, err := sqlf.Update("mailbox").
+	q := sqlf.Update("mailbox").
 		Set("Read", 1).
-		Where("Read = ?", 0).
-		ExecAndClose(context.Background(), db)
+		Where("Read = ?", 0)
+	if user != "" {
+		q.Where("Metadata -> '$.To' LIKE ?", `%"Address":"`+escPercentChar(user)+`@%`)
+	}
+	_, err := q.ExecAndClose(context.Background(), db)
 	if err != nil {
 		return err
 	}
@@ -689,16 +713,19 @@ func MarkAllRead() error {
 }
 
 // MarkAllUnread will mark all messages as unread
-func MarkAllUnread() error {
+func MarkAllUnread(user string) error {
 	var (
 		start = time.Now()
-		total = CountRead()
+		total = CountRead(user)
 	)
 
-	_, err := sqlf.Update("mailbox").
+	q := sqlf.Update("mailbox").
 		Set("Read", 0).
-		Where("Read = ?", 1).
-		ExecAndClose(context.Background(), db)
+		Where("Read = ?", 1)
+	if user != "" {
+		q.Where("Metadata -> '$.To' LIKE ?", `%"Address":"`+escPercentChar(user)+`@%`)
+	}
+	_, err := q.ExecAndClose(context.Background(), db)
 	if err != nil {
 		return err
 	}
@@ -712,15 +739,18 @@ func MarkAllUnread() error {
 }
 
 // MarkUnread will mark a message as unread
-func MarkUnread(id string) error {
-	if IsUnread(id) {
+func MarkUnread(user, id string) error {
+	if isUnread(id) {
 		return nil
 	}
 
-	_, err := sqlf.Update("mailbox").
+	q := sqlf.Update("mailbox").
 		Set("Read", 0).
-		Where("ID = ?", id).
-		ExecAndClose(context.Background(), db)
+		Where("ID = ?", id)
+	if user != "" {
+		q.Where("Metadata -> '$.To' LIKE ?", `%"Address":"`+escPercentChar(user)+`@%`)
+	}
+	_, err := q.ExecAndClose(context.Background(), db)
 
 	if err == nil {
 		logger.Log().Debugf("[db] marked message %s as unread", id)
@@ -731,94 +761,11 @@ func MarkUnread(id string) error {
 	return err
 }
 
-// DeleteOneMessage will delete a single message from a mailbox
-func DeleteOneMessage(id string) error {
-	// begin a transaction to ensure both the message
-	// and data are deleted successfully
-	tx, err := db.BeginTx(context.Background(), nil)
-	if err != nil {
-		return err
-	}
-
-	// roll back if it fails
-	defer tx.Rollback()
-
-	_, err = tx.Exec("DELETE FROM mailbox WHERE ID  = ?", id)
-	if err != nil {
-		return err
-	}
-
-	_, err = tx.Exec("DELETE FROM mailbox_data WHERE ID  = ?", id)
-	if err != nil {
-		return err
-	}
-
-	err = tx.Commit()
-
-	if err == nil {
-		logger.Log().Debugf("[db] deleted message %s", id)
-	}
-
-	dbLastAction = time.Now()
-	dbDataDeleted = true
-
-	return err
-}
-
-// DeleteAllMessages will delete all messages from a mailbox
-func DeleteAllMessages() error {
-	var (
-		start = time.Now()
-		total int
-	)
-
-	_ = sqlf.From("mailbox").
-		Select("COUNT(*)").To(&total).
-		QueryRowAndClose(nil, db)
-
-	// begin a transaction to ensure both the message
-	// summaries and data are deleted successfully
-	tx, err := db.BeginTx(context.Background(), nil)
-	if err != nil {
-		return err
-	}
-
-	// roll back if it fails
-	defer tx.Rollback()
-
-	_, err = tx.Exec("DELETE FROM mailbox")
-	if err != nil {
-		return err
-	}
-
-	_, err = tx.Exec("DELETE FROM mailbox_data")
-	if err != nil {
-		return err
-	}
-
-	if err := tx.Commit(); err != nil {
-		return err
-	}
-
-	_, err = db.Exec("VACUUM")
-	if err == nil {
-		elapsed := time.Since(start)
-		logger.Log().Debugf("[db] deleted %d messages in %s", total, elapsed)
-	}
-
-	dbLastAction = time.Now()
-	dbDataDeleted = false
-
-	websockets.Broadcast("prune", nil, nil)
-
-	return err
-}
-
 // StatsGet returns the total/unread statistics for a mailbox
-func StatsGet() MailboxStats {
+func StatsGet(user string) MailboxStats {
 	var (
-		total  = CountTotal()
-		unread = CountUnread()
+		total  = CountTotal(user)
+		unread = CountUnread(user)
 	)
 
 	dbLastAction = time.Now()
@@ -826,6 +773,9 @@ func StatsGet() MailboxStats {
 	q := sqlf.From("mailbox").
 		Select(`DISTINCT Tags`).
 		Where("Tags != ?", "[]")
+	if user != "" {
+		q.Where("Metadata -> '$.To' LIKE ?", `%"Address":"`+escPercentChar(user)+`@%`)
+	}
 
 	var tags = []string{}
 
@@ -863,23 +813,29 @@ func StatsGet() MailboxStats {
 }
 
 // CountTotal returns the number of emails in the database
-func CountTotal() int {
+func CountTotal(user string) int {
 	var total int
 
-	_ = sqlf.From("mailbox").
-		Select("COUNT(*)").To(&total).
-		QueryRowAndClose(nil, db)
+	q := sqlf.From("mailbox").
+		Select("COUNT(*)").To(&total)
+	if user != "" {
+		q.Where("Metadata -> '$.To' LIKE ?", `%"Address":"`+escPercentChar(user)+`@%`)
+	}
+	_ = q.QueryRowAndClose(nil, db)
 
 	return total
 }
 
 // CountUnread returns the number of emails in the database that are unread.
-func CountUnread() int {
+func CountUnread(user string) int {
 	var total int
 
 	q := sqlf.From("mailbox").
 		Select("COUNT(*)").To(&total).
 		Where("Read = ?", 0)
+	if user != "" {
+		q.Where("Metadata -> '$.To' LIKE ?", `%"Address":"`+escPercentChar(user)+`@%`)
+	}
 
 	_ = q.QueryRowAndClose(nil, db)
 
@@ -887,21 +843,24 @@ func CountUnread() int {
 }
 
 // CountRead returns the number of emails in the database that are read.
-func CountRead() int {
+func CountRead(user string) int {
 	var total int
 
 	q := sqlf.From("mailbox").
 		Select("COUNT(*)").To(&total).
 		Where("Read = ?", 1)
+	if user != "" {
+		q.Where("Metadata -> '$.To' LIKE ?", `%"Address":"`+escPercentChar(user)+`@%`)
+	}
 
 	_ = q.QueryRowAndClose(nil, db)
 
 	return total
 }
 
-// IsUnread returns the number of emails in the database that are unread.
+// isUnread returns the number of emails in the database that are unread.
 // If an ID is supplied, then it is just limited to that message.
-func IsUnread(id string) bool {
+func isUnread(id string) bool {
 	var unread int
 
 	q := sqlf.From("mailbox").

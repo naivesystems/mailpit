@@ -36,23 +36,11 @@ func TestTextEmailInserts(t *testing.T) {
 		}
 	}
 
-	assertEqual(t, CountTotal(), testRuns, "Incorrect number of text emails stored")
+	assertEqual(t, CountTotal(""), testRuns, "Incorrect number of text emails stored")
 
 	t.Logf("Inserted %d text emails in %s", testRuns, time.Since(start))
 
 	assertEqualStats(t, testRuns, testRuns)
-
-	delStart := time.Now()
-	if err := DeleteAllMessages(); err != nil {
-		t.Log("error ", err)
-		t.Fail()
-	}
-
-	assertEqual(t, CountTotal(), 0, "incorrect number of text emails deleted")
-
-	t.Logf("deleted %d text emails in %s", testRuns, time.Since(delStart))
-
-	assertEqualStats(t, 0, 0)
 }
 
 func TestMimeEmailInserts(t *testing.T) {
@@ -72,23 +60,11 @@ func TestMimeEmailInserts(t *testing.T) {
 		}
 	}
 
-	assertEqual(t, CountTotal(), testRuns, "Incorrect number of mime emails stored")
+	assertEqual(t, CountTotal(""), testRuns, "Incorrect number of mime emails stored")
 
 	t.Logf("Inserted %d text emails in %s", testRuns, time.Since(start))
 
 	assertEqualStats(t, testRuns, testRuns)
-
-	delStart := time.Now()
-	if err := DeleteAllMessages(); err != nil {
-		t.Log("error ", err)
-		t.Fail()
-	}
-
-	assertEqual(t, CountTotal(), 0, "incorrect number of mime emails deleted")
-
-	t.Logf("Deleted %d mime emails in %s", testRuns, time.Since(delStart))
-
-	assertEqualStats(t, 0, 0)
 }
 
 func TestRetrieveMimeEmail(t *testing.T) {
@@ -103,7 +79,7 @@ func TestRetrieveMimeEmail(t *testing.T) {
 		t.Fail()
 	}
 
-	msg, err := GetMessage(id)
+	msg, err := GetMessage("", id)
 	if err != nil {
 		t.Log("error ", err)
 		t.Fail()
@@ -120,14 +96,14 @@ func TestRetrieveMimeEmail(t *testing.T) {
 	assertEqual(t, len(msg.Inline), 1, "incorrect number of inline attachments")
 	assertEqual(t, msg.Inline[0].FileName, "inline-image.jpg", "inline attachment filename does not match")
 
-	attachmentData, err := GetAttachmentPart(id, msg.Attachments[0].PartID)
+	attachmentData, err := GetAttachmentPart("", id, msg.Attachments[0].PartID)
 	if err != nil {
 		t.Log("error ", err)
 		t.Fail()
 	}
 	assertEqual(t, len(attachmentData.Content), msg.Attachments[0].Size, "attachment size does not match")
 
-	inlineData, err := GetAttachmentPart(id, msg.Inline[0].PartID)
+	inlineData, err := GetAttachmentPart("", id, msg.Inline[0].PartID)
 	if err != nil {
 		t.Log("error ", err)
 		t.Fail()
@@ -181,7 +157,7 @@ func TestSearch(t *testing.T) {
 			search = fmt.Sprintf("\"the email body %d jdsauk dwqmdqw\"", i)
 		}
 
-		summaries, _, err := Search(search, 0, 100)
+		summaries, _, err := Search("", search, 0, 100)
 		if err != nil {
 			t.Log("error ", err)
 			t.Fail()
@@ -197,7 +173,7 @@ func TestSearch(t *testing.T) {
 	}
 
 	// search something that will return 200 results
-	summaries, _, err := Search("This is the email body", 0, testRuns)
+	summaries, _, err := Search("", "This is the email body", 0, testRuns)
 	if err != nil {
 		t.Log("error ", err)
 		t.Fail()
@@ -261,7 +237,7 @@ func assertEqual(t *testing.T, a interface{}, b interface{}, message string) {
 }
 
 func assertEqualStats(t *testing.T, total int, unread int) {
-	s := StatsGet()
+	s := StatsGet("")
 	if total != s.Total {
 		t.Fatalf("Incorrect total mailbox stats: \"%d\" != \"%d\"", total, s.Total)
 	}

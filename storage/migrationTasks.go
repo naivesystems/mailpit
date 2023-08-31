@@ -134,7 +134,7 @@ func assignMessageIDsTask() {
 	logger.Log().Infof("[migration] extracting Message-IDs for %s messages", p.Sprintf("%d", total))
 
 	for id := range missingIDS {
-		raw, err := GetMessageRaw(id)
+		raw, err := GetMessageRaw("", id)
 		if err != nil {
 			logger.Log().Error("[migration]", err)
 			continue

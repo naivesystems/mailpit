@@ -8,7 +8,6 @@ import (
 
 	"github.com/axllent/mailpit/config"
 	"github.com/axllent/mailpit/storage"
-	"github.com/axllent/mailpit/utils/updater"
 )
 
 // Response includes the current and latest Mailpit version, database info, and memory usage
@@ -53,11 +52,6 @@ func AppInfo(w http.ResponseWriter, r *http.Request) {
 
 	info.Memory = m.Sys - m.HeapReleased
 
-	latest, _, _, err := updater.GithubLatest(config.Repo, config.RepoBinaryName)
-	if err == nil {
-		info.LatestVersion = latest
-	}
-
 	info.Database = config.DataFile
 
 	db, err := os.Stat(info.Database)
@@ -65,7 +59,7 @@ func AppInfo(w http.ResponseWriter, r *http.Request) {
 		info.DatabaseSize = db.Size()
 	}
 
-	info.Messages = storage.CountTotal()
+	info.Messages = storage.CountTotal(u(r))
 
 	bytes, _ := json.Marshal(info)
 

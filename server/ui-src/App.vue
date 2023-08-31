@@ -2,7 +2,6 @@
 import commonMixins from './mixins.js'
 import Message from './templates/Message.vue'
 import MessageSummary from './templates/MessageSummary.vue'
-import MessageRelease from './templates/MessageRelease.vue'
 import MessageToast from './templates/MessageToast.vue'
 import ThemeToggle from './templates/ThemeToggle.vue'
 import moment from 'moment'
@@ -14,7 +13,6 @@ export default {
 	components: {
 		Message,
 		MessageSummary,
-		MessageRelease,
 		MessageToast,
 		ThemeToggle,
 	},
@@ -320,53 +318,6 @@ export default {
 						self.messagePrev = self.items[i].ID
 					}
 				}
-			})
-		},
-
-		// universal handler to delete current or selected messages
-		deleteMessages: function () {
-			let ids = []
-			let self = this
-			if (self.message) {
-				ids.push(self.message.ID)
-			} else {
-				ids = JSON.parse(JSON.stringify(self.selected))
-			}
-			if (!ids.length) {
-				return false
-			}
-			let uri = 'api/v1/messages'
-			self.delete(uri, { 'ids': ids }, function (response) {
-				window.location.hash = ""
-				self.scrollInPlace = true
-				self.loadMessages()
-			})
-		},
-
-		// delete messages displayed in current search
-		deleteSearch: function () {
-			let ids = this.items.map(item => item.ID)
-
-			if (!ids.length) {
-				return false
-			}
-
-			let self = this
-			let uri = 'api/v1/messages'
-			self.delete(uri, { 'ids': ids }, function (response) {
-				window.location.hash = ""
-				self.scrollInPlace = true
-				self.loadMessages()
-			})
-		},
-
-		// delete all messages from mailbox
-		deleteAll: function () {
-			let self = this
-			let uri = 'api/v1/messages'
-			self.delete(uri, false, function (response) {
-				window.location.hash = ""
-				self.reloadMessages()
 			})
 		},
 
@@ -719,13 +670,6 @@ export default {
 			<button class="btn btn-outline-light me-2" title="Mark unread" v-on:click="markUnread">
 				<i class="bi bi-eye-slash"></i> <span class="d-none d-md-inline">Mark unread</span>
 			</button>
-			<button class="btn btn-outline-light me-2" title="Release message"
-				v-if="uiConfig.MessageRelay && uiConfig.MessageRelay.Enabled" v-on:click="initReleaseModal">
-				<i class="bi bi-send"></i> <span class="d-none d-md-inline">Release</span>
-			</button>
-			<button class="btn btn-outline-light me-2" title="Delete message" v-on:click="deleteMessages">
-				<i class="bi bi-trash-fill"></i> <span class="d-none d-md-inline">Delete</span>
-			</button>
 			<a class="btn btn-outline-light float-end" :class="messageNext ? '' : 'disabled'" :href="'#' + messageNext"
 				title="View next message">
 				<i class="bi bi-caret-right-fill"></i>
@@ -799,15 +743,6 @@ export default {
 			</form>
 		</div>
 		<div class="col-12 col-lg-5 text-end mt-2 mt-lg-0" v-if="!message && total">
-			<button v-if="searching && items.length" class="btn btn-danger float-start d-md-none me-2"
-				data-bs-toggle="modal" data-bs-target="#DeleteSearchModal" :disabled="!items" title="Delete results">
-				<i class="bi bi-trash-fill"></i>
-			</button>
-			<button v-else class="btn btn-danger float-start d-md-none me-2" data-bs-toggle="modal"
-				data-bs-target="#DeleteAllModal" :disabled="!total || searching" title="Delete all messages">
-				<i class="bi bi-trash-fill"></i>
-			</button>
-
 			<button v-if="searching && items.length" class="btn btn-light float-start d-md-none" data-bs-toggle="modal"
 				data-bs-target="#MarkSearchReadModal" :disabled="!unreadInSearch"
 				:title="'Mark ' + formatNumber(unreadInSearch) + ' read'">
@@ -871,17 +806,6 @@ export default {
 						Mark all read
 					</button>
 
-					<button v-if="searching && items.length" class="list-group-item list-group-item-action"
-						data-bs-toggle="modal" data-bs-target="#DeleteSearchModal" :disabled="!items">
-						<i class="bi bi-trash-fill me-1 text-danger"></i>
-						Delete {{ formatNumber(items.length) }} message<span v-if="items.length > 1">s</span>
-					</button>
-					<button v-else class="list-group-item list-group-item-action" data-bs-toggle="modal"
-						data-bs-target="#DeleteAllModal" :disabled="!total || searching">
-						<i class="bi bi-trash-fill me-1 text-danger"></i>
-						Delete all
-					</button>
-
 					<button class="list-group-item list-group-item-action" data-bs-toggle="modal"
 						data-bs-target="#EnableNotificationsModal"
 						v-if="isConnected && notificationsSupported && !notificationsEnabled">
@@ -899,10 +823,6 @@ export default {
 						v-on:click="markSelectedUnread">
 						<i class="bi bi-eye-slash me-1"></i>
 						Mark unread
-					</button>
-					<button class="list-group-item list-group-item-action" v-on:click="deleteMessages">
-						<i class="bi bi-trash-fill me-1 text-danger"></i>
-						Delete selected
 					</button>
 					<button class="list-group-item list-group-item-action" v-on:click="selected = []">
 						<i class="bi bi-x-circle me-1"></i>
@@ -1024,49 +944,6 @@ export default {
 	</div>
 
 	<!-- Modal -->
-	<div class="modal fade" id="DeleteAllModal" tabindex="-1" aria-labelledby="DeleteAllModalLabel" aria-hidden="true">
-		<div class="modal-dialog">
-			<div class="modal-content">
-				<div class="modal-header">
-					<h5 class="modal-title" id="DeleteAllModalLabel">Delete all messages?</h5>
-					<button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-				</div>
-				<div class="modal-body">
-					This will permanently delete {{ formatNumber(total) }} message<span v-if="total > 1">s</span>.
-				</div>
-				<div class="modal-footer">
-					<button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
-					<button type="button" class="btn btn-danger" data-bs-dismiss="modal"
-						v-on:click="deleteAll">Delete</button>
-				</div>
-			</div>
-		</div>
-	</div>
-
-	<!-- Modal -->
-	<div class="modal fade" id="DeleteSearchModal" tabindex="-1" aria-labelledby="DeleteSearchModalLabel"
-		aria-hidden="true">
-		<div class="modal-dialog">
-			<div class="modal-content">
-				<div class="modal-header">
-					<h5 class="modal-title" id="DeleteSearchModalLabel">
-						Delete {{ formatNumber(items.length) }} search result<span v-if="items.length > 1">s</span>?
-					</h5>
-					<button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-				</div>
-				<div class="modal-body">
-					This will permanently delete {{ formatNumber(items.length) }} message<span v-if="total > 1">s</span>.
-				</div>
-				<div class="modal-footer">
-					<button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
-					<button type="button" class="btn btn-danger" data-bs-dismiss="modal"
-						v-on:click="deleteSearch">Delete</button>
-				</div>
-			</div>
-		</div>
-	</div>
-
-	<!-- Modal -->
 	<div class="modal fade" id="MarkAllReadModal" tabindex="-1" aria-labelledby="MarkAllReadModalLabel" aria-hidden="true">
 		<div class="modal-dialog">
 			<div class="modal-content">
@@ -1148,29 +1025,7 @@ export default {
 					<button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
 				</div>
 				<div class="modal-body">
-					<a class="btn btn-warning d-block mb-3" v-if="appInfo.Version != appInfo.LatestVersion"
-						:href="'https://github.com/axllent/mailpit/releases/tag/' + appInfo.LatestVersion">
-						A new version of Mailpit ({{ appInfo.LatestVersion }}) is available.
-					</a>
-
 					<div class="row g-3">
-						<div class="col-12">
-							<a class="btn btn-primary w-100" href="api/v1/" target="_blank">
-								<i class="bi bi-braces"></i>
-								OpenAPI / Swagger API documentation
-							</a>
-						</div>
-						<div class="col-sm-6">
-							<a class="btn btn-primary w-100" href="https://github.com/axllent/mailpit" target="_blank">
-								<i class="bi bi-github"></i>
-								Github
-							</a>
-						</div>
-						<div class="col-sm-6">
-							<a class="btn btn-primary w-100" href="https://github.com/axllent/mailpit/wiki" target="_blank">
-								Documentation
-							</a>
-						</div>
 						<div class="col-sm-6">
 							<div class="card border-secondary text-center">
 								<div class="card-header">Database size</div>
@@ -1194,12 +1049,6 @@ export default {
 				</div>
 			</div>
 		</div>
-	</div>
-
-	<!-- Modal -->
-	<div class="modal fade" id="ReleaseModal" tabindex="-1" aria-labelledby="AppInfoModalLabel" aria-hidden="true">
-		<MessageRelease v-if="releaseAddresses" :message="message" :uiConfig="uiConfig"
-			:releaseAddresses="releaseAddresses"></MessageRelease>
 	</div>
 
 	<MessageToast v-if="toastMessage" :message="toastMessage" @clearMessageToast="clearMessageToast"></MessageToast>

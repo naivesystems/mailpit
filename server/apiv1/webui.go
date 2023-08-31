@@ -23,9 +23,6 @@ type webUIConfiguration struct {
 		// Allowlist of accepted recipients
 		RecipientAllowlist string
 	}
-
-	// Whether the HTML check has been globally disabled
-	DisableHTMLCheck bool
 }
 
 // WebUIConfig returns configuration settings for the web UI.
@@ -53,8 +50,6 @@ func WebUIConfig(w http.ResponseWriter, _ *http.Request) {
 		conf.MessageRelay.ReturnPath = config.SMTPRelayConfig.ReturnPath
 		conf.MessageRelay.RecipientAllowlist = config.SMTPRelayConfig.RecipientAllowlist
 	}
-
-	conf.DisableHTMLCheck = config.DisableHTMLCheck
 
 	bytes, _ := json.Marshal(conf)
 

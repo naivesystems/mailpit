@@ -11,15 +11,13 @@ import (
 	"strings"
 
 	"github.com/axllent/mailpit/config"
-	"github.com/axllent/mailpit/server/smtpd"
 	"github.com/axllent/mailpit/storage"
-	"github.com/axllent/mailpit/utils/htmlcheck"
-	"github.com/axllent/mailpit/utils/linkcheck"
-	"github.com/axllent/mailpit/utils/logger"
-	"github.com/axllent/mailpit/utils/tools"
 	"github.com/gorilla/mux"
-	uuid "github.com/satori/go.uuid"
 )
+
+func u(r *http.Request) string {
+	return strings.TrimSpace(r.Header.Get("X-Remote-User"))
+}
 
 // GetMessages returns a paginated list of messages as JSON
 func GetMessages(w http.ResponseWriter, r *http.Request) {
@@ -53,13 +51,13 @@ func GetMessages(w http.ResponseWriter, r *http.Request) {
 	//		default: ErrorResponse
 	start, limit := getStartLimit(r)
 
-	messages, err := storage.List(start, limit)
+	messages, err := storage.List(u(r), start, limit)
 	if err != nil {
 		httpError(w, err.Error())
 		return
 	}
 
-	stats := storage.StatsGet()
+	stats := storage.StatsGet(u(r))
 
 	var res MessagesSummary
 
@@ -119,13 +117,13 @@ func Search(w http.ResponseWriter, r *http.Request) {
 
 	start, limit := getStartLimit(r)
 
-	messages, results, err := storage.Search(search, start, limit)
+	messages, results, err := storage.Search(u(r), search, start, limit)
 	if err != nil {
 		httpError(w, err.Error())
 		return
 	}
 
-	stats := storage.StatsGet()
+	stats := storage.StatsGet(u(r))
 
 	var res MessagesSummary
 
@@ -170,7 +168,7 @@ func GetMessage(w http.ResponseWriter, r *http.Request) {
 
 	id := vars["id"]
 
-	msg, err := storage.GetMessage(id)
+	msg, err := storage.GetMessage(u(r), id)
 	if err != nil {
 		fourOFour(w)
 		return
@@ -217,7 +215,7 @@ func DownloadAttachment(w http.ResponseWriter, r *http.Request) {
 	id := vars["id"]
 	partID := vars["partID"]
 
-	a, err := storage.GetAttachmentPart(id, partID)
+	a, err := storage.GetAttachmentPart(u(r), id, partID)
 	if err != nil {
 		fourOFour(w)
 		return
@@ -260,7 +258,7 @@ func GetHeaders(w http.ResponseWriter, r *http.Request) {
 
 	id := vars["id"]
 
-	data, err := storage.GetMessageRaw(id)
+	data, err := storage.GetMessageRaw(u(r), id)
 	if err != nil {
 		fourOFour(w)
 		return
@@ -309,7 +307,7 @@ func DownloadRaw(w http.ResponseWriter, r *http.Request) {
 
 	dl := r.FormValue("dl")
 
-	data, err := storage.GetMessageRaw(id)
+	data, err := storage.GetMessageRaw(u(r), id)
 	if err != nil {
 		fourOFour(w)
 		return
@@ -320,56 +318,6 @@ func DownloadRaw(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Disposition", "attachment; filename=\""+id+".eml\"")
 	}
 	_, _ = w.Write(data)
-}
-
-// DeleteMessages (method: DELETE) deletes all messages matching IDS.
-func DeleteMessages(w http.ResponseWriter, r *http.Request) {
-	// swagger:route DELETE /api/v1/messages messages Delete
-	//
-	// # Delete messages
-	//
-	// If no IDs are provided then all messages are deleted.
-	//
-	//	Consumes:
-	//	- application/json
-	//
-	//	Produces:
-	//	- text/plain
-	//
-	//	Schemes: http, https
-	//
-	//	Parameters:
-	//	  + name: ids
-	//	    in: body
-	//	    description: Database IDs to delete
-	//	    required: false
-	//	    type: DeleteRequest
-	//
-	//	Responses:
-	//		200: OKResponse
-	//		default: ErrorResponse
-
-	decoder := json.NewDecoder(r.Body)
-	var data struct {
-		IDs []string
-	}
-	err := decoder.Decode(&data)
-	if err != nil || len(data.IDs) == 0 {
-		if err := storage.DeleteAllMessages(); err != nil {
-			httpError(w, err.Error())
-			return
-		}
-	} else {
-		for _, id := range data.IDs {
-			if err := storage.DeleteOneMessage(id); err != nil {
-				httpError(w, err.Error())
-				return
-			}
-		}
-	}
-
-	w.Header().Add("Content-Type", "text/plain")
-	_, _ = w.Write([]byte("ok"))
 }
 
 // SetReadStatus (method: PUT) will update the status to Read/Unread for all provided IDs
@@ -417,13 +365,13 @@ func SetReadStatus(w http.ResponseWriter, r *http.Request) {
 
 	if len(ids) == 0 {
 		if data.Read {
-			err := storage.MarkAllRead()
+			err := storage.MarkAllRead(u(r))
 			if err != nil {
 				httpError(w, err.Error())
 				return
 			}
 		} else {
-			err := storage.MarkAllUnread()
+			err := storage.MarkAllUnread(u(r))
 			if err != nil {
 				httpError(w, err.Error())
 				return
@@ -432,14 +380,14 @@ func SetReadStatus(w http.ResponseWriter, r *http.Request) {
 	} else {
 		if data.Read {
 			for _, id := range ids {
-				if err := storage.MarkRead(id); err != nil {
+				if err := storage.MarkRead(u(r), id); err != nil {
 					httpError(w, err.Error())
 					return
 				}
 			}
 		} else {
 			for _, id := range ids {
-				if err := storage.MarkUnread(id); err != nil {
+				if err := storage.MarkUnread(u(r), id); err != nil {
 					httpError(w, err.Error())
 					return
 				}
@@ -504,241 +452,6 @@ func SetTags(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Add("Content-Type", "text/plain")
 	_, _ = w.Write([]byte("ok"))
-}
-
-// ReleaseMessage (method: POST) will release a message via a pre-configured external SMTP server.
-// If no IDs are provided then all messages are updated.
-func ReleaseMessage(w http.ResponseWriter, r *http.Request) {
-	// swagger:route POST /api/v1/message/{ID}/release message Release
-	//
-	// # Release message
-	//
-	// Release a message via a pre-configured external SMTP server..
-	//
-	//	Consumes:
-	//	- application/json
-	//
-	//	Produces:
-	//	- text/plain
-	//
-	//	Schemes: http, https
-	//
-	//	Parameters:
-	//	  + name: ID
-	//	    in: path
-	//	    description: Database ID
-	//	    required: true
-	//	    type: string
-	//		+ name: to
-	//	    in: body
-	//	    description: Array of email addresses to release message to
-	//	    required: true
-	//	    type: ReleaseMessageRequest
-	//
-	//	Responses:
-	//		200: OKResponse
-	//		default: ErrorResponse
-
-	vars := mux.Vars(r)
-
-	id := vars["id"]
-
-	msg, err := storage.GetMessageRaw(id)
-	if err != nil {
-		fourOFour(w)
-		return
-	}
-
-	decoder := json.NewDecoder(r.Body)
-
-	data := releaseMessageRequest{}
-
-	if err := decoder.Decode(&data); err != nil {
-		httpError(w, err.Error())
-		return
-	}
-
-	tos := data.To
-	if len(tos) == 0 {
-		httpError(w, "No valid addresses found")
-		return
-	}
-
-	for _, to := range tos {
-		address, err := mail.ParseAddress(to)
-
-		if err != nil {
-			httpError(w, "Invalid email address: "+to)
-			return
-		}
-
-		if config.SMTPRelayConfig.RecipientAllowlistRegexp != nil && !config.SMTPRelayConfig.RecipientAllowlistRegexp.MatchString(address.Address) {
-			httpError(w, "Mail address does not match allowlist: "+to)
-			return
-		}
-	}
-
-	reader := bytes.NewReader(msg)
-	m, err := mail.ReadMessage(reader)
-	if err != nil {
-		httpError(w, err.Error())
-		return
-	}
-
-	froms, err := m.Header.AddressList("From")
-	if err != nil {
-		httpError(w, err.Error())
-		return
-	}
-
-	from := froms[0].Address
-
-	// if sender is used, then change from to the sender
-	if senders, err := m.Header.AddressList("Sender"); err == nil {
-		from = senders[0].Address
-	}
-
-	msg, err = tools.RemoveMessageHeaders(msg, []string{"Bcc", "Message-Id"})
-	if err != nil {
-		httpError(w, err.Error())
-		return
-	}
-
-	// set the Return-Path and SMTP mfrom
-	if config.SMTPRelayConfig.ReturnPath != "" {
-		if m.Header.Get("Return-Path") != "<"+config.SMTPRelayConfig.ReturnPath+">" {
-			msg, err = tools.RemoveMessageHeaders(msg, []string{"Return-Path"})
-			if err != nil {
-				httpError(w, err.Error())
-				return
-			}
-			msg = append([]byte("Return-Path: <"+config.SMTPRelayConfig.ReturnPath+">\r\n"), msg...)
-		}
-
-		from = config.SMTPRelayConfig.ReturnPath
-	}
-
-	// generate unique ID
-	uid := uuid.NewV4().String() + "@mailpit"
-	// add unique ID
-	msg = append([]byte("Message-Id: <"+uid+">\r\n"), msg...)
-
-	if err := smtpd.Send(from, tos, msg); err != nil {
-		logger.Log().Errorf("[smtp] error sending message: %s", err.Error())
-		httpError(w, "SMTP error: "+err.Error())
-		return
-	}
-
-	w.Header().Add("Content-Type", "text/plain")
-	_, _ = w.Write([]byte("ok"))
-}
-
-// HTMLCheck returns a summary of the HTML client support
-func HTMLCheck(w http.ResponseWriter, r *http.Request) {
-	// swagger:route GET /api/v1/message/{ID}/html-check Other HTMLCheckResponse
-	//
-	// # HTML check (beta)
-	//
-	// Returns the summary of the message HTML checker.
-	//
-	// NOTE: This feature is currently in beta and is documented for reference only.
-	// Please do not integrate with it (yet) as there may be changes.
-	//
-	//	Produces:
-	//	- application/json
-	//
-	//	Schemes: http, https
-	//
-	//	Parameters:
-	//	  + name: ID
-	//	    in: path
-	//	    description: Database ID
-	//	    required: true
-	//	    type: string
-	//
-	//	Responses:
-	//		200: HTMLCheckResponse
-	//		default: ErrorResponse
-
-	vars := mux.Vars(r)
-	id := vars["id"]
-
-	msg, err := storage.GetMessage(id)
-	if err != nil {
-		fourOFour(w)
-		return
-	}
-
-	if msg.HTML == "" {
-		httpError(w, "message does not contain HTML")
-		return
-	}
-
-	checks, err := htmlcheck.RunTests(msg.HTML)
-	if err != nil {
-		httpError(w, err.Error())
-		return
-	}
-
-	bytes, _ := json.Marshal(checks)
-	w.Header().Add("Content-Type", "application/json")
-	_, _ = w.Write(bytes)
-}
-
-// LinkCheck returns a summary of links in the email
-func LinkCheck(w http.ResponseWriter, r *http.Request) {
-	// swagger:route GET /api/v1/message/{ID}/link-check Other LinkCheckResponse
-	//
-	// # Link check (beta)
-	//
-	// Returns the summary of the message Link checker.
-	//
-	// NOTE: This feature is currently in beta and is documented for reference only.
-	// Please do not integrate with it (yet) as there may be changes.
-	//
-	//	Produces:
-	//	- application/json
-	//
-	//	Schemes: http, https
-	//
-	//	Parameters:
-	//	  + name: ID
-	//	    in: path
-	//	    description: Database ID
-	//	    required: true
-	//	    type: string
-	//	  + name: follow
-	//	    in: query
-	//	    description: Follow redirects
-	//	    required: false
-	//	    type: boolean
-	//	    default: false
-	//
-	//	Responses:
-	//		200: LinkCheckResponse
-	//		default: ErrorResponse
-
-	vars := mux.Vars(r)
-	id := vars["id"]
-
-	msg, err := storage.GetMessage(id)
-	if err != nil {
-		fourOFour(w)
-		return
-	}
-
-	f := r.URL.Query().Get("follow")
-	followRedirects := f == "true" || f == "1"
-
-	summary, err := linkcheck.RunTests(msg, followRedirects)
-	if err != nil {
-		httpError(w, err.Error())
-		return
-	}
-
-	bytes, _ := json.Marshal(summary)
-	w.Header().Add("Content-Type", "application/json")
-	_, _ = w.Write(bytes)
 }
 
 // FourOFour returns a basic 404 message

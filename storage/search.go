@@ -8,7 +8,7 @@ import (
 )
 
 // SearchParser returns the SQL syntax for the database search based on the search arguments
-func searchParser(args []string) *sqlf.Stmt {
+func searchParser(user string, args []string) *sqlf.Stmt {
 	q := sqlf.From("mailbox").
 		Select(`Created, ID, MessageID, Subject, Metadata, Size, Attachments, Read, Tags,
 			IFNULL(json_extract(Metadata, '$.To'), '{}') as ToJSON,
@@ -16,6 +16,9 @@ func searchParser(args []string) *sqlf.Stmt {
 			IFNULL(json_extract(Metadata, '$.Cc'), '{}') as CcJSON,
 			IFNULL(json_extract(Metadata, '$.Bcc'), '{}') as BccJSON
 		`).OrderBy("Created DESC")
+	if user != "" {
+		q.Where("Metadata -> '$.To' LIKE ?", `%"Address":"`+escPercentChar(user)+`@%`)
+	}
 
 	for _, w := range args {
 		if cleanString(w) == "" {
