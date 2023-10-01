@@ -11,7 +11,7 @@
   "dependencies": {
     "axios": "^1.6.0",
     "bootstrap": "^5.2.0",
-    "bootstrap-icons": "^1.9.1",
+    "bootstrap-icons": "^1.11.1",
     "bootstrap5-tags": "^1.6.1",
     "color-hash": "^2.0.2",
     "moment": "^2.29.4",
