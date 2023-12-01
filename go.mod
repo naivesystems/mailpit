@@ -5,7 +5,7 @@ go 1.18
 require (
 	github.com/GuiaBolso/darwin v0.0.0-20191218124601-fd6d2aa3d244
 	github.com/disintegration/imaging v1.6.2
-	github.com/gorilla/mux v1.8.0
+	github.com/gorilla/mux v1.8.1
 	github.com/gorilla/websocket v1.5.0
 	github.com/jhillyerd/enmime v1.0.0
 	github.com/k3a/html2text v1.2.1
