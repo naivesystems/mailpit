@@ -10,7 +10,7 @@
   },
   "dependencies": {
     "axios": "^1.6.0",
-    "bootstrap": "^5.2.0",
+    "bootstrap": "^5.3.3",
     "bootstrap-icons": "^1.11.1",
     "bootstrap5-tags": "^1.6.15",
     "color-hash": "^2.0.2",
